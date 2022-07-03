@@ -12,8 +12,8 @@ namespace Repository.Extensions
         public static IQueryable<Ad> Paginate(this IQueryable<Ad> query, int page)
         {
             if (page > 0)
-                return query.Skip((page - 1) * 9).Take(9);
-            return query.Take(9);
+                return query.Skip((page - 1) * 15).Take(15);
+            return query.Take(15);
         }
 
         public static IQueryable<Ad> Order(this IQueryable<Ad> query, string order)

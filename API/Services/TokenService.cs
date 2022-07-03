@@ -38,7 +38,7 @@ namespace API.Services
                 issuer: null,
                 audience: null,
                 claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(30),
+                expires: DateTime.UtcNow.AddDays(7),
                 signingCredentials: creds
             );
 

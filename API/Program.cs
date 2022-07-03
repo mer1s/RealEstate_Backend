@@ -54,7 +54,7 @@ builder.Services.AddScoped<IMailService, MailService>();
 builder.Services.AddAutoMapper(typeof(MappingProfiles));
 
 var app = builder.Build();
-
+// asdasd
 app.UseCors(opt =>
     opt.AllowAnyHeader()
        .AllowAnyMethod()

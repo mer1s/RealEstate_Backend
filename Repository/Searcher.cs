@@ -15,4 +15,9 @@ namespace Repository
         public int MinPrice { get; set; }
         public int MaxPrice { get; set; }
     }
+    public class TypeSearcher
+    {
+        public string Type { get; set; }
+        public int ThisId { get; set; }
+    }
 }

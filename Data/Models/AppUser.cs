@@ -13,5 +13,8 @@ namespace Data.Models
         public string ImagePath { get; set; }
         [ForeignKey("AppUserId")]
         public List<Ad> MyAds { get; set; } = new();
+        public string? FirstName { get; set; }
+        public string? LastName { get; set; }
+        public string? PasswordHint { get; set; }
     }
 }

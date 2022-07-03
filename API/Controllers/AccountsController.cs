@@ -5,6 +5,8 @@ using Data.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Repository.Extensions;
 using Repository.Interfaces;
 
 namespace API.Controllers
@@ -30,14 +32,36 @@ namespace API.Controllers
             this.mapper = mapper;
         }
 
+        //[Authorize]
+        [HttpGet("all-users/term")]
+        public async Task<IActionResult> AllUsers([FromQuery] string? term, string thisId)
+        {
+            var list = await userManager.Users.Where(n => n.Id != thisId).SearchByUsename(term).ToListAsync();
+            return Ok(list);
+        }
+
+        [Authorize]
+        [HttpDelete("all-users/{id}")]
+        public async Task<IActionResult> DeleteUser(string id)
+        {
+            var user = await userManager.FindByIdAsync(id);
+            var result = await userManager.DeleteAsync(user);
+            if (result.Succeeded)
+            {
+                mailer.AccountDeletedNotify(user.Email);
+                return Ok("Ok je sve");
+            }
+            return BadRequest();
+        }
+
         [HttpPost("login")]
         public async Task<ActionResult<UserDTO>> Login(LoginDTO loginDTO)
         {
             var user = await userManager.FindByNameAsync(loginDTO.Username);
             if (user == null || !await userManager.CheckPasswordAsync(user, loginDTO.Password))
-                return Unauthorized();
+                return BadRequest("Pogrešna šifra ili korisničko ime...");
 
-            if (!user.EmailConfirmed) return BadRequest("Not verified");
+            if (!user.EmailConfirmed) return BadRequest("Nalog nije verifikovan...");
 
 
             var userBasket = await unitOfWork.BasketRepository.GetByOwnerAsync(user.Id);
@@ -45,7 +69,10 @@ namespace API.Controllers
 
             return new UserDTO
             {
+                Id = user.Id,
                 Email = user.Email,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
                 Username = user.UserName,
                 ProfilePic = user.ImagePath,
                 Token = await tokenService.GenerateToken(user),
@@ -53,6 +80,7 @@ namespace API.Controllers
                 Basket = basketToReturn
             };
         }
+
         [Authorize]
         [HttpPost("basket/add/{id}")]
         public async Task<IActionResult> Follow(int id)
@@ -66,6 +94,7 @@ namespace API.Controllers
             await unitOfWork.CompleteAsync();
             return Ok();
         }
+
         [Authorize]
         [HttpPost("basket/remove/{id}")]
         public async Task<IActionResult> Unollow(int id)
@@ -82,7 +111,21 @@ namespace API.Controllers
         [HttpPost("register")]
         public async Task<ActionResult> Register([FromForm] RegisterDTO registerDTO)
         {
-            var user = new AppUser { UserName = registerDTO.Username, Email = registerDTO.Email };
+            var check = await userManager.FindByEmailAsync(registerDTO.Email);
+            if (check != null) return BadRequest("E-mail adresa je zauzeta");
+
+            var checkU = await userManager.FindByNameAsync(registerDTO.Username);
+            if (checkU != null) return BadRequest("Korisničko ime je zauzeto");
+
+            var user = new AppUser 
+            { 
+                UserName = registerDTO.Username, 
+                Email = registerDTO.Email,
+                PasswordHint = registerDTO.PasswordHint,
+                LastName = registerDTO.LastName,
+                FirstName = registerDTO.FirstName
+            };
+
             if (registerDTO.Image == null) user.ImagePath = "defaultUser.png";
             else user.ImagePath = await UploadImage(registerDTO.Image);
             var result = await userManager.CreateAsync(user, registerDTO.Password);
@@ -102,61 +145,177 @@ namespace API.Controllers
             var token =await userManager.GenerateEmailConfirmationTokenAsync(user);
             await unitOfWork.CompleteAsync();
 
-            mailer.SendVerificationMail(user.Id, token);
+            mailer.SendVerificationMail(user.Email,user.Id, token);
 
             return StatusCode(201);
         }
 
         [HttpPost("verify")]
-        public async Task<ActionResult> Verify([FromQuery] string id, [FromQuery] string token)
+        public async Task<ActionResult> Verify(VerificationDTO verification)
         {
-            var user = await userManager.FindByIdAsync(id);
+            var user = await userManager.FindByIdAsync(verification.Id);
 
-            if (user == null) return BadRequest();
+            if (user == null) return NotFound();
 
-            var result = await userManager.ConfirmEmailAsync(user, token);
+            var result = await userManager.ConfirmEmailAsync(user, verification.Token);
+            if (!result.Succeeded)
+            {
+                //return Unauthorized();
+            }
+            return Ok("tjt");
+        }
 
-            if(result.Succeeded) return Ok();
+        [HttpPost("reset-password")]
+        public async Task<ActionResult> ResetPassword([FromBody]ResetPass r)
+        {
+
+            var user = await userManager.FindByEmailAsync(r.Mail);
+
+            if (user == null) return BadRequest("Nepostojeca e-mail adresa");
+
+            var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+            var stringChars = new char[8];
+            var random = new Random();
+
+            for (int i = 0; i < stringChars.Length; i++)
+            {
+                stringChars[i] = chars[random.Next(chars.Length)];
+            }
+
+            var final = new String(stringChars);
+
+            final += "1@Re";
+
+            var token = await userManager.GeneratePasswordResetTokenAsync(user); 
+            await userManager.ResetPasswordAsync(user, token, final);
+            var result = await userManager.UpdateAsync(user);
+
+            if (result.Succeeded) { 
+                mailer.SendNewPassword(user.Email, final);
+                return Ok();
+            }
 
             return BadRequest();
         }
 
-        [HttpPut("edit")]
-        public async Task<ActionResult> Edit([FromForm] RegisterDTO registerDTO)
+        [Authorize]
+        [HttpPost("contact-user")]
+        public async Task<ActionResult> Contact([FromBody] EmailContact e)
         {
-            //var checkUsername = userManager.username
+            var initiator = await userManager.FindByNameAsync(User.Identity.Name);
+            var reciever = await userManager.FindByIdAsync(e.Id);
+
+            mailer.ContactUser(e.Subject, e.Content, reciever, initiator);
+
+            return Ok("Sent!");
+        }
+
+        [Authorize]
+        [HttpPut("edit-username")]
+        public async Task<ActionResult> Edit(string newUsername)
+        {
+            var check = await userManager.FindByNameAsync(newUsername);
+            if (check != null) return BadRequest("Potvrdjeno korisnicko ime je vec zauzeto");
+            var user = await userManager.FindByNameAsync(User.Identity.Name);
+            user.UserName = newUsername;
+            var result = await userManager.UpdateAsync(user);
+            if (result.Succeeded)
+            {
+                var token = await tokenService.GenerateToken(user);
+                return Ok(token);
+            }
+            else return BadRequest();
+        }
+
+        [Authorize]
+        [HttpPut("edit-password")]
+        public async Task<ActionResult> EditPassword(string newPass, string hint)
+        {
             var user = await userManager.FindByNameAsync(User.Identity.Name);
 
-            var checkMail = await userManager.FindByEmailAsync(registerDTO.Email);
-            if (checkMail != null)
-                return BadRequest();
+            var token = await userManager.GeneratePasswordResetTokenAsync(user);
 
-            if(registerDTO.Image != null)
+            await userManager.ResetPasswordAsync(user, token, newPass);
+            user.PasswordHint = hint;
+
+            var result = await userManager.UpdateAsync(user);
+
+
+            if (result.Succeeded)
             {
-                if(user.ImagePath != "defaultUser.png")
-                {
-                    var imagePath = Path.Combine(host.ContentRootPath, "wwwroot", "Images", user.ImagePath);
-                    if (System.IO.File.Exists(imagePath))
-                    {
-                        System.IO.File.Delete(imagePath);
-                    }
-                }
-                user.ImagePath = await UploadImage(registerDTO.Image);
+                var newtoken = await tokenService.GenerateToken(user);
+                return Ok(newtoken);
             }
-
-            userManager.PasswordHasher.HashPassword(user, registerDTO.Password);
-            user.UserName = user.UserName;
-            user.Email = user.Email;
-
-            await userManager.UpdateAsync(user);
-
-            return Ok();
+            else return BadRequest();
         }
-        [HttpGet]
-        public async Task<ActionResult> Unregister()
+
+        [Authorize]
+        [HttpPut("edit-name")]
+        public async Task<ActionResult> EditName(string first, string last)
         {
+            var user = await userManager.FindByNameAsync(User.Identity.Name);
+
+            user.FirstName = first;
+            user.LastName = last;
+
+            //await userManager.ResetPasswordAsync(user, token, newPass);
+
+            var result = await userManager.UpdateAsync(user);
+
+
+            if (result.Succeeded)
+            {
+                var newtoken = await tokenService.GenerateToken(user);
+                return Ok(newtoken);
+            }
+            else return BadRequest("Neuspesno");
+        }
+
+        [Authorize]
+        [HttpPut("remove-pic")]
+        public async Task<ActionResult> RemovePic()
+        {
+            var user = await userManager.FindByNameAsync(User.Identity.Name);
+
+            user.ImagePath = "defaultUser.png";
+
+            //await userManager.ResetPasswordAsync(user, token, newPass);
+
+            var result = await userManager.UpdateAsync(user);
+
+            if (result.Succeeded) return Ok();
+            else return BadRequest("Neuspesno");
+        }
+
+        [Authorize]
+        [HttpPut("change-pic")]
+        public async Task<ActionResult> ChangePic([FromForm] ChangePicDTO c)
+        {
+            var user = await userManager.FindByNameAsync(User.Identity.Name);
+
+            var imagePath = await UploadImage(c.Image);
+
+            user.ImagePath = imagePath;
+
+            //await userManager.ResetPasswordAsync(user, token, newPass);
+
+            var result = await userManager.UpdateAsync(user);
+
+            if (result.Succeeded) return Ok(imagePath);
+            else return BadRequest("Neuspesno");
+        }
+
+        [HttpPost("report/{id}")]
+        public async Task<ActionResult> Report(string id, ReportInfo r)
+        {
+            var user = await userManager.FindByIdAsync(id);
+            if (user == null) return NotFound();
+
+            mailer.SendReport(user.UserName, user.Email, r);
+
             return Ok();
         }
+
         [NonAction]
         public async Task<string> UploadImage(IFormFile file)
         {
@@ -168,13 +327,6 @@ namespace API.Controllers
                 await file.CopyToAsync(fs);
             }
             return imageName;
-        }
-
-        [HttpPost("mail")]
-        public IActionResult SendMail()
-        {
-            mailer.SendMail();
-            return Ok();
         }
     }
 }

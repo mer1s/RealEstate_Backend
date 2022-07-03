@@ -11,7 +11,7 @@ namespace Repository.Interfaces
     {   
         Task<Ad> GetAdWithImages(int id);
         Task<IEnumerable<Ad>> GetAllSortedAsync(Searcher s);
-        Task<IEnumerable<Ad>> GetSameType(string type);
+        Task<IEnumerable<Ad>> GetSameType(string type, int id);
         Task<IEnumerable<Ad>> GetSameOwner(string id);
         Task<IEnumerable<Ad>> GetNewest();
         Task<IEnumerable<Ad>> GetByOwner(string id);

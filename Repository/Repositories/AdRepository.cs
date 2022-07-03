@@ -59,15 +59,15 @@ namespace Repository.Repositories
         public async Task<IEnumerable<Ad>> GetByOwner(string id)
         {
             var list = await context.Ads
-                                    .Where(n => n.AppUserId == id).ToListAsync();
+                .Where(n => n.AppUserId == id).ToListAsync();
 
             return list;
         }
 
-        public async Task<IEnumerable<Ad>> GetSameType(string type)
+        public async Task<IEnumerable<Ad>> GetSameType(string type, int id)
         {
             var list = await context.Ads
-                .Where(n => n.Type == type)
+                .Where(n => n.Type.ToLower() == type.ToLower() && n.Id != id)
                 .Take(4)
                 .ToListAsync();
 

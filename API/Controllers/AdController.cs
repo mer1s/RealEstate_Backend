@@ -55,18 +55,33 @@ namespace API.Controllers
             return Ok(list);
         }
 
-        [HttpGet("same-type/{type}")]
-        public async Task<ActionResult<IEnumerable<Ad>>> GetSameTypeAds(string type)
+        [HttpGet("same-type/typeSearcher")]
+        public async Task<ActionResult<IEnumerable<Ad>>> GetSameTypeAds([FromQuery] TypeSearcher typeSearcher)
         {
-            var list = await unitOfWork.AdRepository.GetSameType(type);
+            var list = await unitOfWork.AdRepository.GetSameType(typeSearcher.Type, typeSearcher.ThisId);
             return Ok(list);
         }
 
         [HttpGet("same-owner/{id}")]
-        public async Task<ActionResult<IEnumerable<Ad>>> GetSameOwnerAds(string id)
+        public async Task<IActionResult> GetSameOwnerAds(string id)
         {
+            var user = await userManager.FindByIdAsync(id);
+            if (user == null) return NotFound();
             var list = await unitOfWork.AdRepository.GetSameOwner(id);
-            return Ok(list);
+            return Ok(new
+            {
+                User = new
+                {
+                    Id = user.Id,
+                    Mail = user.Email,
+                    FirstName = user.FirstName,
+                    LastName = user.LastName,
+                    UserName = user.UserName,
+                    ImagePath = user.ImagePath,
+                    Verified = user.EmailConfirmed ? true : false
+                },
+                List = mapper.Map<IEnumerable<Ad>, IEnumerable<GetAdDTO>>(list)
+            });
         }
 
         [HttpGet("{id}")]
@@ -107,35 +122,40 @@ namespace API.Controllers
         [HttpPut("{id}")]
         public async Task<ActionResult<string>> UpdateAd([FromForm] SaveAdResource resource, int id)
         {
+            bool hasImages = false;
             var user = await userManager.FindByNameAsync(User.Identity.Name);
             var adToUpdate = await unitOfWork.AdRepository.GetAdWithImages(id);
 
-            if(adToUpdate == null) return NotFound();
-            
-            foreach (var image in adToUpdate.Images)
+            if (adToUpdate == null) return NotFound();
+
+            if (resource.Images != null)
             {
-                var imagePath = Path.Combine(host.ContentRootPath, "wwwroot", "Images", image.Path);
-                if (System.IO.File.Exists(imagePath))
+                hasImages = true;
+                foreach (var image in adToUpdate.Images)
                 {
-                    System.IO.File.Delete(imagePath);
+                    var imagePath = Path.Combine(host.ContentRootPath, "wwwroot", "Images", image.Path);
+                    if (System.IO.File.Exists(imagePath))
+                    {
+                        System.IO.File.Delete(imagePath);
+                    }
                 }
+                adToUpdate.Images.Clear();
             }
-
-            adToUpdate.Images.Clear();
-
             //adToUpdate = mapper.Map<SaveAdResource, Ad>(resource);
             mapper.Map<SaveAdResource, Ad>(resource, adToUpdate);
 
-            foreach (var image in resource.Images)
-            {
-                var path = await UploadImage(image);
-                adToUpdate.Images.Add(new Image
+            if (hasImages) { 
+                foreach (var image in resource.Images)
                 {
-                    Path = path
-                });
-            }
+                    var path = await UploadImage(image);
+                    adToUpdate.Images.Add(new Image
+                    {
+                        Path = path
+                    });
+                }
 
-            adToUpdate.TitlePath = adToUpdate.Images[0].Path;
+                adToUpdate.TitlePath = adToUpdate.Images[0].Path; 
+            }
             await unitOfWork.CompleteAsync();
 
             //return Ok(ad.Id);
@@ -146,6 +166,7 @@ namespace API.Controllers
         [HttpGet("my-ads")]
         public async Task<IEnumerable<GetAdDTO>> GetByUser()
         {
+            //promenili smo korisnicko ime ali token je isti a on sadrzi stari username po kom ga i trazimo ovde ispod
             var user = await userManager.FindByNameAsync(User.Identity.Name);
             var ads = await unitOfWork.AdRepository.GetByOwner(user.Id);
 
