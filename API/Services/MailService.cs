@@ -43,7 +43,7 @@ namespace API.Services
                 mailer.Body = "" +
                     "<div>" +
                     "<h4 style='font-weight:400'>Poštovani,<br></br><br></br>Molimo Vas da kliknete na link ispod kako biste uspešno finalizirali registraciju na RealEstate sistem. Hvala unapred!<br></br><br></br>S' poštovanjem,<br></br>RealEstate tim.</h3><br></br><br></br>" +
-                    "http://localhost:3000/verifikacija/?user=" + id + "&token=" + token +
+                    "https://nimble-jelly-be1f14.netlify.app/verifikacija/?user=" + id + "&token=" + token +
                     "</div>";
                 mailer.IsBodyHtml = true;
 
